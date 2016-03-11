@@ -48,6 +48,7 @@ def start_sync():
             logger,
             marketo_results,
             config['DB_UPDATE_INTERVAL'],
+            config['DEBUG'],
         )
 
     else:
@@ -55,31 +56,42 @@ def start_sync():
 
     return 'ok'
 
-def do_sync(job, logger, marketo_results, update_interval):
+def do_sync(job, logger, marketo_results, update_interval, debug=False):
     """Sync Janrain with Marketo."""
-    logger.info("sync start")
+    logger.info("start")
 
     last_timestamp = time.time()
     try:
         record_num = 0
         for record_num, (result, uuid, lastupdated) in enumerate(marketo_results, start=1):
-            if 'reasons' not in result:
-                logger.warning("upsert failed for {}: {}".format(uuid, result['reasons'][0]['message']))
+            if 'id' in result:
+                msg = "id {id} {status} (janrain uuid: {uuid})".format(
+                    id=result['id'],
+                    status=result['status'],
+                    uuid=uuid)
+                logger.info(msg)
+            else:
+                msg = "upsert failed: {reason} (janrain uuid: {uuid})".format(
+                    reason=result['reasons'][0]['message'],
+                    uuid=uuid)
+                logger.warning(msg)
             job.lastupdated = lastupdated
             job.lastrecord = record_num
             current_timestamp = time.time()
             # update db every so often
             if last_timestamp + update_interval >= current_timestamp:
                 job.save()
-                logger.debug("processed record number {} (uuid: {})".format(record_num, uuid))
                 last_timestamp = current_timestamp
         logger.info("synced {} records".format(record_num))
 
     except Exception as ex:
         job.error = str(ex)
-        logger.error(job.error)
+        if debug:
+            logger.exception(ex)
+        else:
+            logger.error(job.error)
 
     finally:
         job.stop()
 
-    logger.info("sync end")
+    logger.info("end")
